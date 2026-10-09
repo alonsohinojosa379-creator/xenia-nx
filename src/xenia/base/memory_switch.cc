@@ -237,35 +237,56 @@ bool RangeOverlapsOurViewsLocked(uintptr_t start, uintptr_t end) {
   return it != st.views_by_address.end() && it->first < end;
 }
 
+// Logs why a fixed-address request was rejected. Only the first few are
+// logged: Memory::Initialize probes many candidate bases.
+void LogRejectedLocked(const char* why, uintptr_t start, uintptr_t end,
+                       uint64_t extra = 0) {
+  static int logged = 0;
+  if (logged >= 24) {
+    return;
+  }
+  ++logged;
+  XELOGI("Horizon memory: range {:X}-{:X} rejected: {} ({:X})", start, end, why,
+         extra);
+}
+
 // Whether [start, end) can host AliasCode/SharedCode mappings and nothing is
 // there yet.
 bool IsRangeAvailableLocked(uintptr_t start, uintptr_t end) {
   const auto& as = GetAddressSpaceInfo();
   if (!as.valid || start >= end) {
+    LogRejectedLocked("address space info invalid", start, end);
     return false;
   }
   if (start < as.aslr.start || end > as.aslr.end) {
+    LogRejectedLocked("outside the ASLR region", start, end);
     return false;
   }
   if (as.heap.Overlaps(start, end) || as.alias.Overlaps(start, end) ||
       as.stack.Overlaps(start, end)) {
+    LogRejectedLocked("overlaps the heap/alias/stack region", start, end);
     return false;
   }
   if (RangeOverlapsOurViewsLocked(start, end)) {
+    LogRejectedLocked("overlaps one of our own views", start, end);
     return false;
   }
   uintptr_t cursor = start;
   while (cursor < end) {
     MemoryInfo info = {};
     u32 page_info = 0;
-    if (R_FAILED(svcQueryMemory(&info, &page_info, cursor))) {
+    Result rc = svcQueryMemory(&info, &page_info, cursor);
+    if (R_FAILED(rc)) {
+      LogRejectedLocked("svcQueryMemory failed", cursor, end, rc);
       return false;
     }
     if (info.type != MemType_Unmapped) {
+      LogRejectedLocked("already mapped (memory type)", cursor, end, info.type);
       return false;
     }
     uintptr_t next = uintptr_t(info.addr + info.size);
     if (next <= cursor) {
+      LogRejectedLocked("svcQueryMemory returned an empty block", cursor, end);
       return false;
     }
     cursor = next;
@@ -790,6 +811,9 @@ void* MapFileView(FileMappingHandle handle, void* base_address, size_t length,
   Mapping* mapping = MappingFromHandleLocked(handle);
   if (!mapping || !length || (file_offset & (kHostPageSize - 1)) ||
       file_offset + length > mapping->size) {
+    LogRejectedLocked("invalid file view request",
+                      reinterpret_cast<uintptr_t>(base_address), length,
+                      file_offset);
     return nullptr;
   }
   size_t aligned_length = PageAlignUp(length);

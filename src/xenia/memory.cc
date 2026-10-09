@@ -19,6 +19,7 @@
 #include "xenia/base/cvar.h"
 #include "xenia/base/logging.h"
 #include "xenia/base/math.h"
+#include "xenia/base/platform.h"
 #include "xenia/base/threading.h"
 
 #include "xenia/cpu/mmio_handler.h"
@@ -192,6 +193,18 @@ bool Memory::Initialize() {
   // Attempt to create our views. This may fail at the first address
   // we pick, so try a few times.
   mapping_base_ = 0;
+#if XE_PLATFORM_SWITCH
+  // Horizon has a 39-bit address space (0x8000000-0x8000000000) shared with
+  // the heap/alias/stack regions, so only a handful of the power-of-two bases
+  // below fit. Try every 4 GB aligned position instead.
+  for (uint64_t slot = 1; slot < 0x7F; slot++) {
+    auto mapping_base = reinterpret_cast<uint8_t*>(slot << 32);
+    if (!MapViews(mapping_base)) {
+      mapping_base_ = mapping_base;
+      break;
+    }
+  }
+#else
   for (size_t n = 32; n < 64; n++) {
     auto mapping_base = reinterpret_cast<uint8_t*>(1ull << n);
     if (!MapViews(mapping_base)) {
@@ -199,6 +212,7 @@ bool Memory::Initialize() {
       break;
     }
   }
+#endif
   if (!mapping_base_) {
     XELOGE("Unable to find a continuous block in the 64bit address space.");
     assert_always();

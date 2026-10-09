@@ -2,6 +2,9 @@ name: Orchestrator
 
 on:
   push:
+    branches-ignore:
+      - 'switch*'
+      - 'toolchain'
     paths-ignore:
       - '*.md'
       - 'docs/**'

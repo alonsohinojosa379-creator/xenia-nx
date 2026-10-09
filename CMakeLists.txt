@@ -33,6 +33,16 @@ else()
 endif()
 message(STATUS "Target architecture: XE_TARGET_AARCH64=${XE_TARGET_AARCH64} XE_TARGET_X86_64=${XE_TARGET_X86_64} (CMAKE_SYSTEM_PROCESSOR=${CMAKE_SYSTEM_PROCESSOR})")
 
+# Nintendo Switch (devkitA64 + libnx). The devkitPro toolchain file sets
+# NINTENDO_SWITCH and CMAKE_SYSTEM_NAME=NintendoSwitch.
+if(NINTENDO_SWITCH OR CMAKE_SYSTEM_NAME STREQUAL "NintendoSwitch")
+  set(XE_PLATFORM_SWITCH TRUE)
+  set(XE_TARGET_AARCH64 TRUE)
+  set(XE_TARGET_X86_64 FALSE)
+else()
+  set(XE_PLATFORM_SWITCH FALSE)
+endif()
+
 # Options
 option(XENIA_BUILD_TESTS "Build test suites" OFF)
 option(XENIA_BUILD_MISC "Build misc subprojects (trace viewers, shader compiler, vfs-dump, demos)" OFF)
@@ -60,7 +70,9 @@ set(CMAKE_SHARED_LINKER_FLAGS_CHECKED "${CMAKE_SHARED_LINKER_FLAGS_DEBUG}" CACHE
 set(CMAKE_STATIC_LINKER_FLAGS_CHECKED "${CMAKE_STATIC_LINKER_FLAGS_DEBUG}" CACHE STRING "" FORCE)
 
 # Platform name for output paths
-if(WIN32)
+if(XE_PLATFORM_SWITCH)
+  set(XE_PLATFORM_NAME "Switch")
+elseif(WIN32)
   set(XE_PLATFORM_NAME "Windows")
 elseif(APPLE)
   set(XE_PLATFORM_NAME "macOS")
@@ -231,7 +243,16 @@ else()
     $<$<COMPILE_LANGUAGE:C>:-Wno-incompatible-pointer-types>
   )
 
-  if(APPLE)
+  if(XE_PLATFORM_SWITCH)
+    # POSIX headers newlib lacks (sys/mman.h, ...).
+    include_directories(BEFORE SYSTEM ${PROJECT_SOURCE_DIR}/src/xenia/switch/compat)
+    add_compile_options(-include ${PROJECT_SOURCE_DIR}/src/xenia/switch/compat/xenia_switch_compat.h)
+    add_compile_options(-march=armv8-a+crc+crypto -mtune=cortex-a57 -ffunction-sections
+      $<$<COMPILE_LANGUAGE:CXX>:-Wno-psabi>)
+    # Link groups for executables (resolves circular deps)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--start-group")
+    set(CMAKE_CXX_STANDARD_LIBRARIES "${CMAKE_CXX_STANDARD_LIBRARIES} -Wl,--end-group")
+  elseif(APPLE)
     # macOS-specific settings
     set(CMAKE_OSX_DEPLOYMENT_TARGET "15.0" CACHE STRING "Minimum macOS version")
     add_compile_options(
@@ -290,6 +311,9 @@ else()
     $<$<CONFIG:Release>:_NO_DEBUG_HEAP=1>
   )
   add_compile_options($<$<CONFIG:Release>:-O3>)
+  if(XE_PLATFORM_SWITCH)
+    # devkitA64 is GCC + bfd; no ThinLTO / lld.
+  else()
   # Link-time optimization (use lld and llvm-ar/ranlib to avoid system
   # linker/archiver LTO plugin version mismatch with clang's bitcode)
   add_compile_options($<$<CONFIG:Release>:-flto=thin>)
@@ -303,6 +327,7 @@ else()
   if(LLVM_RANLIB)
     set(CMAKE_RANLIB "${LLVM_RANLIB}" CACHE FILEPATH "" FORCE)
   endif()
+  endif()  # NOT XE_PLATFORM_SWITCH
   # No symbols in release on non-Windows
   string(REPLACE "-g" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
   string(REPLACE "-g" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")

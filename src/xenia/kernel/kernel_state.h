@@ -143,16 +143,12 @@ struct DPCImpersonationScope {
 };
 
 struct KernelVersion {
-  union {
-    xe::be<uint64_t> value;
-
-    struct {
-      xe::be<uint16_t> major;
-      xe::be<uint16_t> minor;
-      xe::be<uint16_t> build;
-      xe::be<uint16_t> qfe;
-    };
-  };
+  // Plain fields (no anonymous union): GCC rejects members with constructors
+  // in anonymous aggregates. Layout is the same 8 big-endian bytes.
+  xe::be<uint16_t> major;
+  xe::be<uint16_t> minor;
+  xe::be<uint16_t> build;
+  xe::be<uint16_t> qfe;
 
   KernelVersion(uint16_t build_ver = kBaseKernelBuildVersion) {
     major = 2;

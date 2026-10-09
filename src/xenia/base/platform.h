@@ -31,6 +31,10 @@
 #define XE_PLATFORM_MAC 1
 #elif defined(WIN32) || defined(_WIN32)
 #define XE_PLATFORM_WIN32 1
+#elif defined(__SWITCH__)
+// Nintendo Switch (Horizon OS, devkitA64 + libnx). POSIX-like via newlib and
+// libnx's pthread layer, but it is not Linux.
+#define XE_PLATFORM_SWITCH 1
 #elif defined(__ANDROID__)
 #define XE_PLATFORM_ANDROID 1
 #define XE_PLATFORM_LINUX 1

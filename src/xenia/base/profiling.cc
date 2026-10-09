@@ -29,7 +29,17 @@
 #define MICROPROFILE_WEBSERVER 0
 #define MICROPROFILE_DEBUG 0
 #define MICROPROFILE_MAX_THREADS 256
+#if XE_PLATFORM_SWITCH && !defined(__linux__)
+// microprofile only knows Windows/Apple/Linux; Horizon's newlib provides the
+// same POSIX bits (clock_gettime, pthread_self, getpid) its Linux path uses.
+#define __linux__ 1
+#define XE_SWITCH_MICROPROFILE_LINUX_SHIM 1
+#endif
 #include "third_party/microprofile/microprofile.h"
+#if XE_SWITCH_MICROPROFILE_LINUX_SHIM
+#undef __linux__
+#undef XE_SWITCH_MICROPROFILE_LINUX_SHIM
+#endif
 
 #include "xenia/base/assert.h"
 #include "xenia/base/cvar.h"

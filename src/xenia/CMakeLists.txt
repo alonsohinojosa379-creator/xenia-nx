@@ -5,9 +5,24 @@ add_library(xenia-core STATIC)
 file(GLOB _core_sources   "${CMAKE_CURRENT_SOURCE_DIR}/*.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/*.cc"
 )
+if(XE_PLATFORM_SWITCH)
+  # Stage 1 (CPU core bring-up): the emulator front-end is not built yet.
+  list(FILTER _core_sources EXCLUDE REGEX "/emulator\\.(cc|h)$")
+endif()
 target_sources(xenia-core PRIVATE ${_core_sources})
 target_link_libraries(xenia-core PUBLIC fmt xenia-base)
 xe_target_defaults(xenia-core)
+
+if(XE_PLATFORM_SWITCH)
+  # Nintendo Switch bring-up: build only the CPU core (PowerPC -> ARM64 JIT)
+  # plus the Switch test harness. The remaining modules are enabled as they
+  # get ported.
+  add_subdirectory(base)
+  add_subdirectory(cpu)
+  add_subdirectory(cpu/backend/a64)
+  add_subdirectory(switch)
+  return()
+endif()
 
 # All subdirectories
 add_subdirectory(base)

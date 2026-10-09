@@ -5,7 +5,7 @@ include(CMakeParseArguments)
 
 # Platform suffix lists for file filtering
 set(XE_PLATFORM_SUFFIXES
-  _win _linux _posix _gnulinux _x11 _gtk _android _mac _amd64 _x64 _arm64
+  _win _linux _posix _gnulinux _x11 _gtk _android _mac _switch _amd64 _x64 _arm64
 )
 
 # xe_platform_sources(target base_path [RECURSIVE])
@@ -59,7 +59,21 @@ function(xe_platform_sources target base_path)
   endif()
 
   # Add back platform-specific files
-  if(WIN32)
+  if(XE_PLATFORM_SWITCH)
+    # Horizon reuses the POSIX implementations, except where a *_switch file
+    # provides a replacement for the matching *_posix file.
+    file(${glob_mode} _plat_sources      "${base_path}/*_posix.h"
+      "${base_path}/*_posix.cc"
+      "${base_path}/*_switch.h"
+      "${base_path}/*_switch.cc"
+    )
+    foreach(src ${_plat_sources})
+      if(src MATCHES "_switch\\.(h|cc)$")
+        string(REGEX REPLACE "_switch\\.(h|cc)$" "_posix.\\1" _posix_twin "${src}")
+        list(REMOVE_ITEM _plat_sources "${_posix_twin}")
+      endif()
+    endforeach()
+  elseif(WIN32)
     file(${glob_mode} _plat_sources      "${base_path}/*_win.h"
       "${base_path}/*_win.cc"
     )

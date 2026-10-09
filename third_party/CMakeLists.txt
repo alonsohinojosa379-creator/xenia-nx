@@ -13,8 +13,11 @@ endif()
 if(XE_TARGET_AARCH64)
   add_library(xbyak_aarch64 STATIC
     xbyak_aarch64/src/xbyak_aarch64_impl.cpp
-    xbyak_aarch64/src/util_impl.cpp
   )
+  if(NOT XE_PLATFORM_SWITCH)
+    # CPU feature detection; reads Linux/macOS interfaces.
+    target_sources(xbyak_aarch64 PRIVATE xbyak_aarch64/src/util_impl.cpp)
+  endif()
   target_include_directories(xbyak_aarch64 PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/xbyak_aarch64
     ${CMAKE_CURRENT_SOURCE_DIR}/xbyak_aarch64/src
@@ -90,6 +93,7 @@ target_include_directories(cxxopts INTERFACE cxxopts/include)
 add_library(tomlplusplus INTERFACE)
 target_include_directories(tomlplusplus INTERFACE tomlplusplus/include)
 
+if(NOT XE_PLATFORM_SWITCH)
 # ==============================================================================
 # dxbc
 # ==============================================================================
@@ -133,6 +137,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     discord-rpc/src/discord_register_linux.cpp
   )
 endif()
+endif()  # NOT XE_PLATFORM_SWITCH
 
 # ==============================================================================
 # fmt
@@ -146,7 +151,7 @@ target_include_directories(fmt PUBLIC fmt/include)
 # ==============================================================================
 # glslang-spirv (not needed on macOS — no Vulkan/SPIR-V backend)
 # ==============================================================================
-if(NOT APPLE)
+if(NOT APPLE AND NOT XE_PLATFORM_SWITCH)
   file(GLOB _glslang_spirv_cpp "glslang/SPIRV/*.cpp")
   file(GLOB _glslang_spirv_h "glslang/SPIRV/*.h")
   file(GLOB _glslang_spirv_hpp "glslang/SPIRV/*.hpp11")
@@ -357,6 +362,12 @@ else()
   endif()
 endif()
 target_include_directories(zlib-ng PUBLIC zlib-ng)
+
+# Nintendo Switch: the remaining libraries (libusb, SDL2, FFmpeg) are not
+# built yet; SDL2/FFmpeg come from devkitPro portlibs once needed.
+if(XE_PLATFORM_SWITCH)
+  return()
+endif()
 
 # ==============================================================================
 # libusb (Windows only)

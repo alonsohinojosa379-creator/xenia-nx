@@ -1,0 +1,166 @@
+name: Switch - PPC tests (stage 1)
+
+# Builds the Nintendo Switch homebrew that runs Xenia's PowerPC instruction
+# tests through the ARM64 JIT, assembles the tests, and publishes one zip to
+# copy to the SD card root.
+on:
+  push:
+    branches: [switch]
+    paths-ignore:
+      - '*.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: switch-ppc-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Xenia's custom binutils (with VMX128) assembles the .s test sources.
+  tests:
+    name: Assemble PPC tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential texinfo flex bison curl
+
+      - name: Cache binutils
+        id: cache-binutils
+        uses: actions/cache@v4
+        with:
+          path: |
+            third_party/binutils/bin
+            third_party/binutils/lib
+            third_party/binutils/powerpc-none-elf
+            third_party/binutils/share
+          key: ppc-binutils-2.24-${{ hashFiles('third_party/binutils/build.sh', 'third_party/binutils/*.patch') }}
+
+      - name: Build binutils (powerpc-none-elf, VMX128)
+        if: steps.cache-binutils.outputs.cache-hit != 'true'
+        working-directory: third_party/binutils
+        env:
+          # binutils 2.24 predates GCC's -fno-common default and makeinfo 7.
+          CFLAGS: -O2 -fcommon -w
+          MAKEINFO: 'true'
+          MAKEFLAGS: -j4
+        run: bash build.sh
+
+      - name: Assemble tests
+        run: bash tools/switch/gen-ppc-tests.sh third_party/binutils/bin out/tests
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ppc-tests
+          path: out/tests
+          if-no-files-found: error
+
+  nro:
+    name: Build .nro
+    runs-on: ubuntu-24.04
+    container: devkitpro/devkita64:latest
+    steps:
+      - name: Install tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends git ca-certificates cmake ninja-build python3
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - name: Fetch required submodules
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git submodule update --init --depth 1 -- \
+            third_party/aes_128 third_party/capstone third_party/cxxopts \
+            third_party/date third_party/disruptorplus third_party/fmt \
+            third_party/imgui third_party/pugixml third_party/rapidcsv \
+            third_party/rapidjson third_party/snappy third_party/tabulate \
+            third_party/tomlplusplus third_party/utfcpp third_party/xbyak \
+            third_party/xbyak_aarch64 third_party/xxhash third_party/zarchive \
+            third_party/zlib-ng third_party/zstd
+
+      - name: Configure
+        run: |
+          export DEVKITPRO=/opt/devkitpro DEVKITA64=/opt/devkitpro/devkitA64
+          cmake -S . -B build-nx -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE=/opt/devkitpro/cmake/Switch.cmake \
+            -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: |
+          export DEVKITPRO=/opt/devkitpro DEVKITA64=/opt/devkitpro/devkitA64
+          cmake --build build-nx --target xenia-ppc-tests-nx_nro
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nro
+          path: build-nx/src/xenia/switch/xenia-ppc-tests-nx.nro
+          if-no-files-found: error
+
+  package:
+    name: Package and publish
+    needs: [tests, nro]
+    if: ${{ always() && needs.nro.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: nro
+          path: nro
+
+      - uses: actions/download-artifact@v4
+        if: ${{ needs.tests.result == 'success' }}
+        with:
+          name: ppc-tests
+          path: tests
+
+      - name: Assemble the SD card layout
+        run: |
+          mkdir -p dist/switch/xenia-nx/tests
+          cp nro/xenia-ppc-tests-nx.nro dist/switch/xenia-nx/
+          if [ -d tests ]; then cp -r tests/. dist/switch/xenia-nx/tests/; fi
+          cat > dist/LEEME.txt <<'EOF'
+          Xenia NX - pruebas PPC (etapa 1)
+
+          1. Copia la carpeta "switch" a la raiz de la tarjeta SD (se fusiona
+             con la que ya tienes).
+          2. Abre el Homebrew Menu manteniendo R sobre un juego (modo
+             aplicacion / memoria completa, NO desde el Album).
+          3. Ejecuta "xenia-ppc-tests-nx".
+
+          Resultados: sd:/switch/xenia-nx/ppc-tests.log
+          Si la consola se cierra o crashea en una prueba, vuelve a abrir el
+          programa: marca esa prueba como CRASH y continua con la siguiente.
+          Para empezar desde cero, manten ZL+ZR al abrirlo.
+          Log interno de Xenia: sd:/switch/xenia-nx/xenia-nx.log
+          EOF
+          (cd dist && zip -qr ../xenia-nx-ppc-tests.zip .)
+          ls -la xenia-nx-ppc-tests.zip
+          echo "tests dir: $(ls dist/switch/xenia-nx/tests 2>/dev/null | wc -l) files"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: xenia-nx-ppc-tests
+          path: xenia-nx-ppc-tests.zip
+
+      - name: Publish release (rolling)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete switch-latest --cleanup-tag --yes -R "$GITHUB_REPOSITORY" || true
+          gh release create switch-latest xenia-nx-ppc-tests.zip \
+            -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --prerelease \
+            --title "Xenia NX - PPC tests (${GITHUB_SHA::7})" \
+            --notes "Build automatico de la rama switch (${GITHUB_SHA::7}). Copia la carpeta switch del zip a la raiz de la SD."

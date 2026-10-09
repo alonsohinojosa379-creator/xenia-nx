@@ -19,14 +19,14 @@ jobs:
         run: |
           dkp-pacman -Syu --noconfirm || true
           dkp-pacman -S --noconfirm --needed switch-sdl2 switch-mesa switch-libdrm_nouveau switch-zlib switch-zstd || true
-          (command -v git && command -v zstd) || (apt-get update && apt-get install -y git zstd)
+          (command -v git && command -v xz) || (apt-get update && apt-get install -y git xz-utils)
       - name: Pack and push
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -e
           mkdir /pack && cd /pack
-          tar -C /opt -cf - devkitpro | zstd -19 -T0 | split -b 90M - devkitpro.tar.zst.
+          tar -C /opt -cf - devkitpro | xz -6 -T0 | split -b 90M - devkitpro.tar.xz.
           ls -la
           git init -q -b toolchain
           git config user.name "toolchain-bot"

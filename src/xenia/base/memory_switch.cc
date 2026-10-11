@@ -569,7 +569,11 @@ Mapping* MappingFromHandleLocked(FileMappingHandle handle) {
 }  // namespace
 
 size_t page_size() { return kHostPageSize; }
-size_t allocation_granularity() { return kHostPageSize; }
+// Report 64 KB like Windows. Xenia then maps the 0xE0000000 (4 KB physical)
+// view at a 64 KB aligned file offset and emulates the extra 4 KB through
+// host_address_offset, which the a64 backend already handles. With 4 KB the
+// view would start at 0x100001000 and run past the end of the mapping.
+size_t allocation_granularity() { return kChunkSize; }
 
 // Horizon enforces W^X.
 bool IsWritableExecutableMemorySupported() { return false; }
